@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import json #использовали, чтобы сэкономить время, у нас тесты хранились в словарях было проще переформатировать
 import os
+import csv
 
 
 # Класс для хранения одного вопроса теста
@@ -68,6 +69,12 @@ class TestApp:
         self.root.geometry("500x400")
 
         self.tests_file = "tests.json"
+        self.stats_file = "stats.csv"
+
+        if not os.path.isfile(self.stats_file):
+            with open(self.stats_file, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Имя пользователя", "Категория теста", "Количество баллов"])
 
         self.tests = []
         self.current_test = None
@@ -75,8 +82,12 @@ class TestApp:
         self.current_result = None
         self.selected_answer = tk.StringVar()
 
+        self.__administrator_username = 'Администратор'
+        self.__administrator_password = 'Пароль'
+
         self.load_tests_from_file()
-        self.show_menu()
+        self.ask_username()
+        # self.show_menu()
 
     # Загрузка тестов из JSON файла
     def load_tests_from_file(self):
@@ -96,6 +107,102 @@ class TestApp:
     def clear_screen(self):
         for widget in self.root.winfo_children():
             widget.destroy()
+
+    # Спросить имя пользователя для статистики
+    def ask_username(self):
+        self.clear_screen()
+
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(expand=True)
+
+        label = ttk.Label(frame, text="Введите имя:")
+        label.pack()
+
+        self.entry = ttk.Entry(frame)
+        self.entry.pack()
+
+        btn = tk.Button(root, text="Подтвердить", command=self.input_username)
+        btn.pack()
+
+    # Если имя пользователя Администратор, запрашиваем пароль
+    def ask_password(self):
+        self.clear_screen()
+
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(expand=True)
+
+        label = ttk.Label(frame, text="Введите пароль:")
+        label.pack()
+
+        self.entry = ttk.Entry(frame, show="*")
+        self.entry.pack()
+
+        btn = tk.Button(root, text="Подтвердить", command=self.input_password)
+        btn.pack()
+
+
+    # Проверяем является ли пользователь администратором, иначе двигаемся в следующее меню
+    def input_username(self):
+        self.username = self.entry.get()
+
+        if self.username == self.__administrator_username:
+            self.ask_password()
+        else:
+            self.show_menu()
+
+    # Проверяем пароль администратора
+    def input_password(self):
+        self.username = self.entry.get()
+
+        if self.username == self.__administrator_password:
+            self.show_admin_menu()
+
+        else:
+            self.clear_screen()
+
+            frame = ttk.Frame(self.root, padding=20)
+            frame.pack(expand=True)
+
+            ttk.Label(frame, text="Неверный пароль администратора").pack(pady=10)
+            ttk.Button(frame, text="В главное меню", command=self.ask_username).pack(pady=20)
+
+    # Показать меню администратора со статистикой
+    def show_admin_menu(self):
+        self.clear_screen()
+
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(expand=True)
+
+        ttk.Button(frame, text="В главное меню", width=30, command=self.ask_username).pack(pady=5)
+
+        ttk.Label(frame, text="Статистика").pack(pady=20)
+
+        tree = ttk.Treeview(frame)
+        tree.pack(fill="both", expand=True, side="left")
+
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        scrollbar.pack(side="right", fill="y")
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        with open(self.stats_file, "r", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+
+        if not rows:
+            return
+
+        header = rows[0]
+        data = rows[1:]
+
+        tree["columns"] = header
+        tree["show"] = "headings"
+
+        for col in header:
+            tree.heading(col, text=col)
+            tree.column(col, width=150)
+
+        for row in data:
+            tree.insert("", tk.END, values=row)
 
     # Показать главное меню с выбором теста
     def show_menu(self):
@@ -182,6 +289,8 @@ class TestApp:
             len(self.current_result.answers))
         ttk.Label(frame, text=result_text).pack(pady=10)
 
+        self.save_results()
+
         ttk.Label(frame, text="Подробности:").pack(pady=10)
 
         # Детальная информация по каждому вопросу
@@ -197,6 +306,11 @@ class TestApp:
             lbl.pack(anchor="w")
 
         ttk.Button(frame, text="В главное меню", command=self.show_menu).pack(pady=20)
+
+    def save_results(self):
+        with open('stats.csv', 'a', newline="", encoding='utf-8') as stat_file:
+            writer = csv.writer(stat_file)
+            writer.writerow([self.username, self.current_test.name, str(self.current_result.correct_count)])
 
 root = tk.Tk()
 app = TestApp(root)
