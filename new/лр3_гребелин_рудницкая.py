@@ -3,24 +3,49 @@ from tkinter import ttk
 import json #использовали, чтобы сэкономить время, у нас тесты хранились в словарях было проще переформатировать
 import os
 import csv
+import datetime
 
+# Класс для сохранения/загрузки файлов сохранения
+class RecoveryObject:
+
+    class RecoveryObjectAnswer:
+        def __init__(self, index=0, question="", user_answer=""):
+            self.index = index
+            self.question = question
+            self.answer = user_answer
+
+
+    def __init__(self, test_name, correct_count=0, answers=[]):
+        self.test_name = test_name
+        self.correct_count = correct_count
+        self.answers = answers
+
+    def add_answer(self, answer):
+        pass
 
 # Класс для хранения одного вопроса теста
 class Question:
-    def __init__(self, text, variants, correct_answer):
+
+    def __init__(self, text, variants, correct_answer, hint, user_answer = None):
         self.text = text
         self.variants = variants
         self.correct_answer = correct_answer
+        self.user_answer = user_answer
+
+    # Ответ пользователя храним в атрибуте класса
+    def add_answer(self, answer):
+        self.user_answer = answer
 
     # Проверка правильности ответа
-    def check_answer(self, answer):
-        return answer == self.correct_answer
+    def check_answer(self):
+        return self.user_answer == self.correct_answer
 
-
-# Класс для хранения целого теста (набора вопросов)
 class Test:
-    def __init__(self, name, questions=None):
+    def __init__(self, name, is_recovered=False, questions=None):
         self.name = name
+        self.correct_count = 0
+        self.is_recovered = is_recovered
+
         if questions is None:
             self.questions = []
         else:
@@ -40,26 +65,8 @@ class Test:
     def get_total_questions(self):
         return len(self.questions)
 
-
-# Класс для хранения результатов прохождения теста
-class TestResult:
-    def __init__(self, test_name):
-        self.test_name = test_name
-        self.answers = []
-        self.correct_count = 0
-    # Добавить ответ пользователя
-    def add_answer(self, question, user_answer):
-        is_correct = question.check_answer(user_answer)
-        answer_dict = {
-            "question": question.text,
-            "user_answer": user_answer,
-            "correct_answer": question.correct_answer,
-            "is_correct": is_correct
-        }
-        self.answers.append(answer_dict)
-        if is_correct:
-            self.correct_count += 1
-
+    def get_correct_count(self):
+        return self.correct_count
 
 # Главный класс приложения
 class TestApp:
@@ -85,23 +92,26 @@ class TestApp:
         self.__administrator_username = 'Администратор'
         self.__administrator_password = 'Пароль'
 
-        self.load_tests_from_file()
         self.ask_username()
-        # self.show_menu()
 
-    # Загрузка тестов из JSON файла
-    def load_tests_from_file(self):
-        if os.path.exists(self.tests_file):
-            f = open(self.tests_file, "r", encoding="utf-8")
+    def load_tests_names_from_file(self):
+        with open(self.tests_file, "r", newline="", encoding="utf-8") as f:
             data = json.load(f)
-            f.close()
 
-            for test_data in data:
-                test = Test(test_data["name"])
-                for q in test_data["questions"]:
-                    question = Question(q["question"], q["variants"], q["correct_answer"])
-                    test.add_question(question)
-                self.tests.append(test)
+        return [test['name'] for test in data]
+
+    def load_test_by_name(self, test_name):
+        with open(self.tests_file, "r", newline="", encoding="utf-8") as f:
+            data = json.load(f)
+
+        for test in data:
+            if test['name'] == test_name:
+                user_test = Test(test['name'])
+                for question in test['questions']:
+                    user_test.add_question(Question(question['question'], question['variants'],
+                                                    question['correct_answer'], question['hint']))
+
+        return user_test
 
     # Очистка экрана от всех элементов
     def clear_screen(self):
@@ -140,16 +150,6 @@ class TestApp:
         btn = tk.Button(root, text="Подтвердить", command=self.input_password)
         btn.pack()
 
-
-    # Проверяем является ли пользователь администратором, иначе двигаемся в следующее меню
-    def input_username(self):
-        self.username = self.entry.get()
-
-        if self.username == self.__administrator_username:
-            self.ask_password()
-        else:
-            self.show_menu()
-
     # Проверяем пароль администратора
     def input_password(self):
         self.username = self.entry.get()
@@ -165,6 +165,22 @@ class TestApp:
 
             ttk.Label(frame, text="Неверный пароль администратора").pack(pady=10)
             ttk.Button(frame, text="В главное меню", command=self.ask_username).pack(pady=20)
+
+    # Проверяем является ли пользователь администратором,
+    # а также есть ли незавершенная сессия для этого пользователя иначе двигаемся в следующее меню
+    def input_username(self):
+        self.username = self.entry.get()
+
+        if self.username == self.__administrator_username:
+            self.ask_password()
+        else:
+            self.recovery_file = f'.recovery_${self.username}_{datetime.datetime.now():%d_%m_%Y_%H_%M}.json'
+            if (self.check_recovery_file):
+                pass  # предлагаем восстановить сессию пользователя
+            else:
+                with open(self.recovery_file, "w", encoding="utf-8") as f:
+                    f.write('{"test_index": "NAME", "current_index": 0, "correct_count": 0, "answers": [{"index": 0,  "question": "QUESTION",  "user_answer": "ANSWER"  } ] }')
+            self.show_menu()
 
     # Показать меню администратора со статистикой
     def show_admin_menu(self):
@@ -204,6 +220,10 @@ class TestApp:
         for row in data:
             tree.insert("", tk.END, values=row)
 
+    # Проверка есть ли незаконченный тест у пользователя
+    def check_recovery_file(self):
+        return os.path.exists(self.recovery_file)
+
     # Показать главное меню с выбором теста
     def show_menu(self):
         self.clear_screen()
@@ -214,21 +234,21 @@ class TestApp:
         ttk.Label(frame, text="Выберите тест").pack(pady=20)
 
         # Создаем кнопку для каждого теста
-        for i in range(len(self.tests)):
-            test = self.tests[i]
-            btn = ttk.Button(frame, text=f"{i + 1}. {test.name}", width=30, command=lambda t=test: self.begin_test(t))
+        for test_name in self.load_tests_names_from_file():
+            btn = ttk.Button(frame, text=f"{test_name}", width=30,
+                             command=lambda t=test_name: self.begin_test(t))
             btn.pack(pady=5)
 
         ttk.Label(frame, text="").pack(pady=10)
         ttk.Button(frame, text="Выход", width=30, command=self.root.quit).pack(pady=5)
 
-    # Начать прохождение выбранного теста
-    def begin_test(self, test):
-        self.current_test = test
-        self.current_question_index = 0
-        self.current_result = TestResult(test.name)
-        self.display_question()
+    def begin_test(self, test_name, is_recovered=False, current_question_index=0):
+        self.current_test = self.load_test_by_name(test_name)
 
+        if is_recovered:
+            pass  # recovery session
+
+        self.display_question()
 
     def display_question(self):
         self.clear_screen()
@@ -272,8 +292,14 @@ class TestApp:
             return
 
         question = self.current_test.get_question(self.current_question_index)
-        self.current_result.add_answer(question, answer)
+        question.add_answer(answer)
+        if question.check_answer():
+            self.current_test.correct_count += 1
+
         self.current_question_index = self.current_question_index + 1
+
+        # add row in recovery file (TODO)
+        #
         self.display_question()
 
     def show_results(self):
@@ -284,9 +310,8 @@ class TestApp:
 
         ttk.Label(frame, text="Тест завершён").pack(pady=10)
 
-
-        result_text = "Правильных ответов: " + str(self.current_result.correct_count) + " из " + str(
-            len(self.current_result.answers))
+        result_text = "Правильных ответов: " + str(self.current_test.correct_count) + " из " + str(
+            len(self.current_test.questions))
         ttk.Label(frame, text=result_text).pack(pady=10)
 
         self.save_results()
@@ -297,11 +322,11 @@ class TestApp:
         details_frame = ttk.Frame(frame)
         details_frame.pack()
 
-        for ans in self.current_result.answers:
-            if ans["is_correct"]:
-                text = "+ " + ans['question']
+        for q in self.current_test.questions:
+            if q.check_answer():
+                text = "+ " + q.text
             else:
-                text = "- " + ans['question']
+                text = "- " + q.text
             lbl = ttk.Label(details_frame, text=text)
             lbl.pack(anchor="w")
 
@@ -310,7 +335,8 @@ class TestApp:
     def save_results(self):
         with open('stats.csv', 'a', newline="", encoding='utf-8') as stat_file:
             writer = csv.writer(stat_file)
-            writer.writerow([self.username, self.current_test.name, str(self.current_result.correct_count)])
+            writer.writerow([self.username, self.current_test.name, str(self.current_test.correct_count)])
+
 
 root = tk.Tk()
 app = TestApp(root)
