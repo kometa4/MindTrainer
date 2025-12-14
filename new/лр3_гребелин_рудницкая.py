@@ -4,24 +4,7 @@ import json #использовали, чтобы сэкономить врем�
 import os
 import csv
 import datetime
-
-# Класс для сохранения/загрузки файлов сохранения
-class RecoveryObject:
-
-    class RecoveryObjectAnswer:
-        def __init__(self, index=0, question="", user_answer=""):
-            self.index = index
-            self.question = question
-            self.answer = user_answer
-
-
-    def __init__(self, test_name, correct_count=0, answers=[]):
-        self.test_name = test_name
-        self.correct_count = correct_count
-        self.answers = answers
-
-    def add_answer(self, answer):
-        pass
+from pathlib import Path
 
 # Класс для хранения одного вопроса теста
 class Question:
@@ -41,6 +24,7 @@ class Question:
         return self.user_answer == self.correct_answer
 
 class Test:
+
     def __init__(self, name, is_recovered=False, questions=None):
         self.name = name
         self.correct_count = 0
@@ -67,6 +51,37 @@ class Test:
 
     def get_correct_count(self):
         return self.correct_count
+    
+# Классы для сохранения/загрузки файлов сохранения
+
+class RecoveryObjectAnswer:
+        
+        def __init__(self, question="", user_answer=""):
+            self.question = question
+            self.user_answer = user_answer
+
+        def to_dict(self):
+            return {
+                "question": self.question,
+                "user_answer": self.user_answer
+            }
+
+class RecoveryObject:
+
+    def __init__(self, test_name, correct_count=0, answers=[]):
+        self.test_name = test_name
+        self.correct_count = correct_count
+        self.answers = answers
+
+    def to_dict(self):
+        return {
+            "test_name": self.test_name,
+            "correct_count": self.correct_count,
+            "answers": [answer.to_dict() for answer in self.answers]
+        }
+
+    def add_answer(self, recovery_object_answer):
+        self.answers.append(recovery_object_answer)
 
 # Главный класс приложения
 class TestApp:
@@ -83,6 +98,7 @@ class TestApp:
                 writer = csv.writer(f)
                 writer.writerow(["Имя пользователя", "Категория теста", "Количество баллов"])
 
+        self.recovery_object = None
         self.tests = []
         self.current_test = None
         self.current_question_index = 0
@@ -174,13 +190,16 @@ class TestApp:
         if self.username == self.__administrator_username:
             self.ask_password()
         else:
-            self.recovery_file = f'.recovery_${self.username}_{datetime.datetime.now():%d_%m_%Y_%H_%M}.json'
-            if (self.check_recovery_file):
-                pass  # предлагаем восстановить сессию пользователя
+            
+            if (self.check_recovery_file()):
+                print('here')
+                self.ask_recovery_session(self.check_recovery_file())  # предлагаем восстановить сессию пользователя
             else:
+                self.recovery_file = f'.recovery_{self.username}_{datetime.datetime.now():%d_%m_%Y_%H_%M}.json'
                 with open(self.recovery_file, "w", encoding="utf-8") as f:
-                    f.write('{"test_index": "NAME", "current_index": 0, "correct_count": 0, "answers": [{"index": 0,  "question": "QUESTION",  "user_answer": "ANSWER"  } ] }')
-            self.show_menu()
+                    f.write('')
+                    # {"test_index": "NAME", "current_index": 0, "correct_count": 0, "answers": [{"index": 0,  "question": "QUESTION",  "user_answer": "ANSWER"  } ] }
+                self.show_menu()
 
     # Показать меню администратора со статистикой
     def show_admin_menu(self):
@@ -220,9 +239,46 @@ class TestApp:
         for row in data:
             tree.insert("", tk.END, values=row)
 
+    # Для того, чтобы из имени файла получить дату
+    def date_from_filename(self, filename):
+        return filename[-21:-11].replace('_', '.') + ' ' + filename[-10:-5].replace('_', ':')
+
     # Проверка есть ли незаконченный тест у пользователя
     def check_recovery_file(self):
-        return os.path.exists(self.recovery_file)
+
+        files = list(Path("./").glob(f"*{self.username}*.json"))
+        print(files)
+        return files
+    
+    def ask_recovery_session(self, recovery_files):
+        self.clear_screen()
+        print('now here')
+        frame = ttk.Frame(self.root, padding=20)
+        frame.pack(expand=True)
+
+        ttk.Label(frame, text="У вас есть одна или несколько незаконченных сессий, выберете какую восставновить:").pack(pady=20)
+
+        for rf in recovery_files:
+            btn = ttk.Button(frame, text=f"{self.date_from_filename(rf.name)}", width=30,
+                             command=lambda rf=rf: print(rf.name))
+            btn.pack(pady=5)
+        
+        btn = ttk.Button(frame, text="Не восстанавливать", width=30,
+                             command=lambda rf=rf: self.dont_recovery(recovery_files))
+        btn.pack(pady=5)
+
+    #
+    def dont_recovery(self, files):
+
+        for file in files:
+            Path.unlink(file.resolve())
+
+        self.recovery_file = f'.recovery_{self.username}_{datetime.datetime.now():%d_%m_%Y_%H_%M}.json'
+        
+        with open(self.recovery_file, "w", encoding="utf-8") as f:
+            f.write('')
+
+        self.show_menu()
 
     # Показать главное меню с выбором теста
     def show_menu(self):
@@ -248,6 +304,7 @@ class TestApp:
         if is_recovered:
             pass  # recovery session
 
+        self.recovery_object = RecoveryObject(test_name)
         self.display_question()
 
     def display_question(self):
@@ -285,6 +342,7 @@ class TestApp:
 
     # Проверка ответа пользователя
     def check_answer(self):
+
         answer = self.selected_answer.get()
 
         if not answer:
@@ -297,6 +355,12 @@ class TestApp:
             self.current_test.correct_count += 1
 
         self.current_question_index = self.current_question_index + 1
+
+        self.recovery_object.add_answer(RecoveryObjectAnswer(self.current_test.get_question(self.current_question_index).text, answer))
+        self.recovery_object.correct_count = self.current_test.correct_count
+
+        with open(self.recovery_file, 'w', encoding='utf-8') as f:
+            json.dump(self.recovery_object.to_dict(), f, indent=4)
 
         # add row in recovery file (TODO)
         #
@@ -333,10 +397,12 @@ class TestApp:
         ttk.Button(frame, text="В главное меню", command=self.show_menu).pack(pady=20)
 
     def save_results(self):
+
         with open('stats.csv', 'a', newline="", encoding='utf-8') as stat_file:
             writer = csv.writer(stat_file)
             writer.writerow([self.username, self.current_test.name, str(self.current_test.correct_count)])
 
+        os.remove(self.recovery_file)
 
 root = tk.Tk()
 app = TestApp(root)
